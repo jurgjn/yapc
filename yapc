@@ -245,28 +245,38 @@ def run_idr(chroms, starts, ends, scores_rep1, scores_rep2, prefix_out, conditio
     print(idr_cmd)
     os.system(idr_cmd)
 
-def main(df_samples, prefix_out, kernel, min_concave_region_width, truncate_idr_input, fixed_peak_halfwidth):
+def check_recycle(label, fp, recycle):
+    # File does not exist
+    if not os.path.isfile(fp):
+        logging.info('[compute]\t%s: %s' % (label, fp))
+        return True
+
+    # File exists and recycle enabled
+    elif recycle:
+        logging.info('[recycle]\t%s: %s' % (label, fp))
+        return False
+
+    # File exists and recycle not enabled
+    else:
+        os.remove(fp) # delete existing file
+        logging.info('[recompute]\t%s: %s' % (label, fp))
+        return True
+
+def main(df_samples, prefix_out, kernel, min_concave_region_width, truncate_idr_input, fixed_peak_halfwidth, recycle):
     # fp_coverage
     fp_coverage = prefix_out + '_coverage.bw'
-    if not(os.path.isfile(fp_coverage)):
+    if check_recycle('pooled coverage track', fp_coverage, recycle):
         coverage(df_samples['fp'].tolist(), fp_coverage)
-    else:
-        assert is_bw(fp_coverage)
-        print('Recycling existing coverage track: %s' % (fp_coverage,))
 
     # fp_d2smooth
     fp_d2smooth = prefix_out + '_d2smooth.bw'
-    if not(os.path.isfile(fp_d2smooth)):
-        print('Calculating d2smooth: %s' % (fp_d2smooth,))
+    if check_recycle('d2smooth track', fp_d2smooth, recycle):
         d2smooth(fp_coverage, fp_d2smooth, kernel)
-    else:
-        assert is_bw(fp_d2smooth)
-        print('Recycling existing d2smooth track: %s' % (fp_d2smooth,))
 
     # fp_peaksall -- all raw peaks, scored by D2
     fp_peaksall_tsv = prefix_out + '_peaksall.tsv'
     fp_peaksall_bed = prefix_out + '_peaksall.bed'
-    if not(os.path.isfile(fp_peaksall_tsv)):
+    if check_recycle('raw concave regions', fp_peaksall_tsv, recycle):
         # call concave regions
         df_regions = find_concave_regions(fp_d2smooth, fp_peaksall_tsv, fp_peaksall_bed)
 
@@ -288,32 +298,28 @@ def main(df_samples, prefix_out, kernel, min_concave_region_width, truncate_idr_
             thickEnd = df_regions['mode'] + 1,
         )
 
-    else:
-        df_regions = pd.read_csv(fp_peaksall_tsv, sep='\t')
-        print('Recycling existing scored concave regions (n=%d): %s' % (len(df_regions), fp_peaksall_tsv,))
+    df_regions = pd.read_csv(fp_peaksall_tsv, sep='\t')
+    logging.info('%d raw concave regions found' % (len(df_regions),))
 
     # discard narrow peaks
-    print('%d raw peaks' % (len(df_regions),))
+    logging.info('%d raw peaks' % (len(df_regions),))
     df_regions = df_regions.query('(concave_end - concave_start) >= @min_concave_region_width').reset_index(drop=True)
-    print('%d peaks after discarding narrow concave regions (min_concave_region_width=%d)' % (len(df_regions), min_concave_region_width))
+    logging.info('%d peaks after discarding narrow concave regions (min_concave_region_width=%d)' % (len(df_regions), min_concave_region_width))
 
     # rank scores & truncate peak list based on "best" rank => 100,000 peaks
     df_regions['min_rank'] = df_regions[[sample + '_score' for sample in df_samples['sample']]].rank(axis=0, ascending=False).min(axis=1)
     df_regions_idr = df_regions.sort_values('min_rank').head(truncate_idr_input).sort_values(['chrom', 'concave_start', 'concave_end']).reset_index(drop=True)
-    print('%d peaks after filtering based on best rank across all conditions (truncate_idr_input=%d)' % (len(df_regions_idr), truncate_idr_input))
+    logging.info('%d peaks after filtering based on best rank across all conditions (truncate_idr_input=%d)' % (len(df_regions_idr), truncate_idr_input))
     
-    print('\ncurvature index-scores:')
     col_ = [sample + '_score' for sample in df_samples['sample']]
-    print(df_regions[col_].head().to_string(line_width=1000, index=False))
-    print()
+    str_ = df_regions[col_].head().to_string(line_width=1000, index=False)
+    logging.info('curvature index-scores:\n%(str_)s' % locals())
 
     # run IDR using scores from each condition
     for condition in df_samples['condition'].unique():
         fp_idr = prefix_out + '_peaksidr_%(condition)s.bed' % locals()
-        if not(os.path.isfile(fp_idr)):
+        if check_recycle('IDR on %s' % (condition,), fp_idr, recycle):
             run_idr(df_regions_idr['chrom'], df_regions_idr['concave_start'], df_regions_idr['concave_end'], df_regions_idr['%(condition)s_rep1_score' % locals()], df_regions_idr['%(condition)s_rep2_score' % locals()], prefix_out, condition)
-        else:
-            print('Recycling existing IDR run: %s' % (fp_idr,))
 
         col_prefix = condition
         names_ = [
@@ -326,11 +332,9 @@ def main(df_samples, prefix_out, kernel, min_concave_region_width, truncate_idr_
         df_ = pd.read_csv(fp_idr, names=names_, sep='\t').sort_values(['chrom', 'concave_start', 'concave_end']).reset_index(drop=True)
         df_regions_idr['%(col_prefix)s_globalIDR' % locals()] = df_['%(col_prefix)s_globalIDR' % locals()]
 
-    print()
-    print('globalIDR:')
+    logging.info('globalIDR:')
     col_ = ['%(col_prefix)s_globalIDR' % locals() for col_prefix in df_samples['condition'].unique()]
-    print(df_regions_idr[col_].head().to_string(line_width=1000, index=False))
-    print()
+    logging.info(df_regions_idr[col_].head().to_string(line_width=1000, index=False))
 
     # Final peak boundaries -- fixed at flank_len bases either side of the mode
     if fixed_peak_halfwidth is None:
@@ -344,7 +348,7 @@ def main(df_samples, prefix_out, kernel, min_concave_region_width, truncate_idr_
     # Write final output of all peaks
     fp_regions_idr = prefix_out + '.tsv'
     df_regions_idr.to_csv(fp_regions_idr, header=True, index=False, sep='\t')
-    print('Wrote all %d IDR-scored peaks to %s' % (len(df_regions_idr), fp_regions_idr))
+    logging.info('Wrote all %d IDR-scored peaks to %s' % (len(df_regions_idr), fp_regions_idr))
 
     # Write final .bed-files at a range of thresholds
     col_ = ['%(col_prefix)s_globalIDR' % locals() for col_prefix in df_samples['condition'].unique()]
@@ -359,7 +363,7 @@ def main(df_samples, prefix_out, kernel, min_concave_region_width, truncate_idr_
             end = df_regions_idr_th['end'],
             attr = df_regions_idr_th[col_],
         )
-        print('Wrote %d peaks at IDR=%.3f to %s' % (len(df_regions_idr_th), th, fp_regions_idr_th))
+        logging.info('Wrote %d peaks at IDR=%.3f to %s' % (len(df_regions_idr_th), th, fp_regions_idr_th))
 
 def parse_input_files(l_inp):
     l_records = []
@@ -391,22 +395,23 @@ if __name__ == '__main__':
         parser.add_argument('--min-concave-region-width', help='Discard concave regions smaller than the threshold specified.', type=int, default=75)
         parser.add_argument('--truncate-idr-input', help='Truncate IDR input to the number of peaks specified.', type=int, default=100000)
         parser.add_argument('--fixed-peak-halfwidth', help='Set final peak coordinates to the specified number of base pairs on either side of the concave region mode.', type=int)
+        parser.add_argument('--recycle', help='Do not recompute (intermediate) output files if a file with the expected name is already present. Enabling this can lead to funky behaviour e.g. in the case of a previously interrupted run.', action='store_true')
         args = parser.parse_args()
 
-        logging.basicConfig(level=logging.DEBUG)
-        #        format='%(asctime)s; %(levelname)s; %(funcName)s; %(message)s',
-        #        datefmt='%y-%m-%d %H:%M:%S')
+        logging.basicConfig(
+            level=logging.DEBUG, 
+            format='%(asctime)s | %(message)s',
+            datefmt='%y-%m-%d %H:%M:%S')
         logging.debug('numpy version: %s' % (np.__version__,))
         logging.debug('pandas version: %s' % (pd.__version__,))
         logging.debug('pyBigWig.numpy flag: %s' % (pyBigWig.numpy))
         logging.debug('IDR version: %s' % (idr.__version__))
 
         df_samples = parse_input_files(args.CONDITION_REP1_REP2)
-        print('Input samples:')
-        print(df_samples.to_string(line_width=1000, index=False))
-        print()
+        s_ = df_samples.to_string(line_width=1000, index=False)
+        logging.info('Input samples:\n%(s_)s\n' % locals())
 
-        print('Output prefix: %s' % (args.OUTPUT_PREFIX,))
+        logging.info('Output prefix: %s' % (args.OUTPUT_PREFIX,))
 
         # Make output directory + intermediate directories if necessary -- fails sometimes
         #prefix_out = sys.argv[-1]
@@ -419,6 +424,7 @@ if __name__ == '__main__':
             min_concave_region_width=args.min_concave_region_width,
             fixed_peak_halfwidth=args.fixed_peak_halfwidth,
             truncate_idr_input=args.truncate_idr_input,
+            recycle=args.recycle,
         )
 
     except KeyboardInterrupt:

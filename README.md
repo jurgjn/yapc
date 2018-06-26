@@ -18,7 +18,7 @@ $ yapc atac_wt_yapc \
 - Use processed signal tracks of biological replicates (`atac_wt_emb_rep1.bw`, ..., `atac_wt_ya_rep2.bw`) that show the most compelling peaks by visual inspection
   - To weigh all samples equally, these should be normalised by library size, e.g. as done by MACS2 via `--SPMR`
   - For assays with "multiple tracks" (treatment+control), use assay-specific preprocessing to combine these into a single signal track (e.g. [BEADS](http://beads.sourceforge.net/) for ChIP-seq)
-- `atac_wt_yapc` is used as a prefix for all the output files. The script will try to re-use existing output containing intermediate results (such as mean coverage or second derivative tracks); these can/should be removed manually if the input data changes (e.g. `rm atac_wt_yapc*`)
+- `atac_wt_yapc` is used as a prefix for all the output files.
 - `wt_emb`, `wt_l1`, ..., `wt_ya` specify condition names used for labelling files/columns in the output
 - Once finished, `atac_wt_yapc_0.001.bed`, `_0.005.bed`, `_0.01.bed`, `_0.05.bed` contain peaks that passed the corresponding IDR cutoff in at least one condition
 - (Backslashes (`\`) extend the shell command to the next line)
@@ -31,7 +31,7 @@ usage: yapc [-h] [--smoothing-window-width SMOOTHING_WINDOW_WIDTH]
             [--smoothing-times SMOOTHING_TIMES]
             [--min-concave-region-width MIN_CONCAVE_REGION_WIDTH]
             [--truncate-idr-input TRUNCATE_IDR_INPUT]
-            [--fixed-peak-halfwidth FIXED_PEAK_HALFWIDTH]
+            [--fixed-peak-halfwidth FIXED_PEAK_HALFWIDTH] [--recycle]
             OUTPUT_PREFIX [CONDITION_REP1_REP2 [CONDITION_REP1_REP2 ...]]
 
 An adhoc peak caller for genomic high-throughput sequencing data such as ATAC-
@@ -68,6 +68,10 @@ optional arguments:
                         Set final peak coordinates to the specified number of
                         base pairs on either side of the concave region mode.
                         (default: None)
+  --recycle             Do not recompute (intermediate) output files if a file
+                        with the expected name is already present. Enabling
+                        this can lead to funky behaviour e.g. in the case of a
+                        previously interrupted run. (default: False)
 ```
 
 ## Output
