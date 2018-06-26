@@ -196,15 +196,19 @@ def read_regions(fp, chroms, starts, ends, v=False):
     fh.close()
     if v: print(n_clip, 'clipped regions')
 
-#df = pd.read_csv(input[0], sep='\t', names=['chrom', 'start', 'end', 'name', 'score', 'strand'])
-#        df['score'] = list(map(lambda x: -x, read_regions(input[1], df.chrom, map(int, df.start), map(int, df.end), np.mean)))
-#        #df['score'] = list(map(lambda x: -x, read_regions(input[1], df.chrom, map(int, df.start), map(int, df.end), np.min)))
-#        df.to_csv(output[0], header=False, index=False, sep='\t')
-def score(fp_inp, chroms, starts, ends, kernel):
+def scores(fp_inp, chroms, starts, ends, kernel):
+    """
+    Calculate scores for a list of regions, and return an iterator of the scores.
+
+    chroms, starts, ends -- lists of genomic coordinates specifying the regions
+    fp_inp -- name of the BigWig file containing the raw coverage signal
+    kernel -- specifies the kernel to convolve the raw signal with (this should match the kernel used to define the concave regions)
+
+    Scores are currently defined as the reverse of the mean smoothed second derivative within the region.
+    """
     fh_inp = pyBigWig.open(fp_inp)
     d_chrom_d2smooth = {}
     for chrom, size in itertools.islice(fh_inp.chroms().items(), None):
-        #print(chrom)
         val = fh_inp.values(chrom, 0, size, numpy=True)
         val_d2 = np.convolve(val, kernel, mode='same')
         d_chrom_d2smooth[chrom] = val_d2
@@ -285,7 +289,7 @@ def main(df_samples, prefix_out, kernel, min_concave_region_width, truncate_idr_
             fp_ = r['fp']
             col_ = r['sample'] + '_score'
             print('scoring peaks for sample: %s' % (r['sample'],))
-            df_regions[col_] = [*score(fp_, df_regions.chrom.tolist(), df_regions.concave_start.tolist(), df_regions.concave_end.tolist(), kernel)]
+            df_regions[col_] = [*scores(fp_, df_regions.chrom.tolist(), df_regions.concave_start.tolist(), df_regions.concave_end.tolist(), kernel)]
 
         # write all concave regions to output
         df_regions.to_csv(fp_peaksall_tsv, header=True, index=False, sep='\t')
