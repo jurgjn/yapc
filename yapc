@@ -38,18 +38,6 @@ def prepare_second_derivative_kernel(width, times):
     ADHOC_LARGE_NUMBER = 1e6 # scale to have better visualisation of d2smooth in IGV
     return ADHOC_LARGE_NUMBER*kernel[::-1]
 
-def fill_gap(y): # work-around for a specific weirdly-formatted data set; not meant for general use
-    y[np.isnan(y)] = 0
-    s = np.where(np.diff(y) < 0)[0] + 1
-    e = np.where(np.diff(y) > 0)[0] + 1
-    if s[0] > e[0]:
-        e = e[1:]
-    if s[-1] > e[-1]:
-        s = s[0:(len(s)-1)]
-    for i,j in zip(s,e):
-        y[i:j] = (y[i-1]+y[j])/2
-    return y
-
 def is_bw(fp):
     with pyBigWig.open(fp) as fh:
         f = fh.isBigWig()
@@ -177,26 +165,6 @@ def find_concave_regions(fp_inp, fp_out_tsv, fp_out_bed):
     fh_inp.close()
     print('%d peaks total' % (len(df_regions),))
     return df_regions
-
-def read_regions(fp, chroms, starts, ends, v=False):
-    assert os.path.isfile(fp)
-    n_clip = 0
-    fh = pyBigWig.open(fp)
-    for chrom, start_, end_ in zip(chroms, starts, ends):
-        # fixes pyBigWig -- RuntimeError: You must supply a chromosome, start and end position.
-        start = int(start_)
-        end = int(end_)
-
-        # Clip region if necessary
-        if (0 <= start) and (end < fh.chroms(chrom)):
-            r = fh.values(chrom, start, end)#, numpy=True)
-        else:
-            r = np.zeros(end - start) # Should get the partial signal
-            n_clip += 1
-
-        yield np.array(r)
-    fh.close()
-    if v: print(n_clip, 'clipped regions')
 
 def scores(fp_inp, chroms, starts, ends, kernel):
     """
