@@ -26,8 +26,10 @@ import pyBigWig
 
 def prepare_second_derivative_kernel(width, times):
     """
-    Second derivative weights from: https://doi.org/10.1090/S0025-5718-1988-0935077-0
-    Ref for smoothing 3 times: https://terpconnect.umd.edu/~toh/spectrum/Differentiation.html#Smoothing
+    Return composite kernel that calculates the smoothed second derivative via a single convolution with the input signal.
+
+    Weights of the second derivative kernel: https://doi.org/10.1090/S0025-5718-1988-0935077-0
+    Rationale for smoothing 3 times (by default): https://terpconnect.umd.edu/~toh/spectrum/Differentiation.html#Smoothing
     """
     kernel = [-1.0/560, 8.0/315, -1.0/5, 8.0/5, -205.0/72, 8.0/5, -1.0/5, 8.0/315, -1.0/560]
     rolling_mean_kernel = np.ones(width)/float(width)
