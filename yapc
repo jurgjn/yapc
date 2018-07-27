@@ -19,10 +19,12 @@ import sys
 
 from pprint import pprint
 
-import idr
 import numpy as np
 import pandas as pd
 import pyBigWig
+
+import idr
+import idr.idr
 
 def prepare_second_derivative_kernel(width, times):
     """
@@ -186,7 +188,10 @@ def scores(fp_inp, chroms, starts, ends, kernel):
     for chrom, start, end in zip(chroms, starts, ends):
         yield -np.mean(d_chrom_d2smooth[chrom][start:end])
 
-def run_idr(chroms, starts, ends, scores_rep1, scores_rep2, prefix_out, condition):
+def run_idr_system(chroms, starts, ends, scores_rep1, scores_rep2, prefix_out, condition):
+    '''
+    Compute IDR scores by calling idr via os.system()
+    '''
     fp_rep1 = prefix_out + '_peaksidr_%(condition)s_rep1.bed' % locals()
     fp_rep2 = prefix_out + '_peaksidr_%(condition)s_rep2.bed' % locals()
     fp_iout = prefix_out + '_peaksidr_%(condition)s.bed' % locals()
@@ -218,6 +223,39 @@ def run_idr(chroms, starts, ends, scores_rep1, scores_rep2, prefix_out, conditio
     print('Running idr on condition %(condition)s:' % locals())
     print(idr_cmd)
     os.system(idr_cmd)
+        
+    col_prefix = condition
+    names_ = [
+        'chrom', 'concave_start', 'concave_end', 'name',
+        '%(col_prefix)s_scaledIDR' % locals(), 'strand',
+        '%(col_prefix)s_localIDR' % locals(), '%(col_prefix)s_globalIDR' % locals(),
+        '%(col_prefix)s_rep1_start' % locals(), '%(col_prefix)s_rep1_end' % locals(), '%(col_prefix)s_rep1_score' % locals(),
+        '%(col_prefix)s_rep2_start' % locals(), '%(col_prefix)s_rep2_end' % locals(), '%(col_prefix)s_rep2_score' % locals(),
+    ]
+    df_ = pd.read_csv(fp_iout, names=names_, sep='\t').sort_values(['chrom', 'concave_start', 'concave_end']).reset_index(drop=True)
+    return df_['%(col_prefix)s_globalIDR' % locals()]
+
+def run_idr_call(scores_rep1, scores_rep2):
+    '''
+    Compute IDR scores via directly calling various routines within the idr python module
+    '''
+
+    # https://github.com/nboley/idr/blob/74665e73bffb689a440948640c386b1188eea1e3/idr/idr.py#L295-L296
+    rank1 = np.lexsort((np.random.random(len(scores_rep1)), scores_rep1)).argsort()
+    rank2 = np.lexsort((np.random.random(len(scores_rep2)), scores_rep2)).argsort()
+
+    # https://github.com/nboley/idr/blob/74665e73bffb689a440948640c386b1188eea1e3/idr/idr.py#L298-L299
+    # https://github.com/nboley/idr/blob/74665e73bffb689a440948640c386b1188eea1e3/idr/idr.py#L408
+    # https://github.com/nboley/idr/blob/74665e73bffb689a440948640c386b1188eea1e3/idr/idr.py#L858-L865
+    localIDRs = idr.idr.fit_model_and_calc_local_idr(r1=np.array(rank1, dtype=np.int), r2=np.array(rank2, dtype=np.int))
+
+    # https://github.com/nboley/idr/blob/74665e73bffb689a440948640c386b1188eea1e3/idr/idr.py#L883
+    IDRs = idr.idr.calc_global_IDR(localIDRs)
+
+    # https://github.com/nboley/idr/blob/74665e73bffb689a440948640c386b1188eea1e3/idr/idr.py#L334
+    def scaledIDR(IDR): return -math.log10(max(1e-5, IDR))
+    scaledIDRs = pd.Series([* map(scaledIDR, IDRs) ])
+    return scaledIDRs
 
 def check_recycle(label, fp, recycle):
     # File does not exist
@@ -289,40 +327,33 @@ def main(df_samples, prefix_out, kernel, min_concave_region_width, truncate_idr_
     str_ = df_regions[col_].head().to_string(line_width=1000, index=False)
     logging.info('curvature index-scores:\n%(str_)s' % locals())
 
-    # run IDR using scores from each condition
-    for condition in df_samples['condition'].unique():
-        fp_idr = prefix_out + '_peaksidr_%(condition)s.bed' % locals()
-        if check_recycle('IDR on %s' % (condition,), fp_idr, recycle):
-            run_idr(df_regions_idr['chrom'], df_regions_idr['concave_start'], df_regions_idr['concave_end'], df_regions_idr['%(condition)s_rep1_score' % locals()], df_regions_idr['%(condition)s_rep2_score' % locals()], prefix_out, condition)
-
-        col_prefix = condition
-        names_ = [
-            'chrom', 'concave_start', 'concave_end', 'name',
-            '%(col_prefix)s_scaledIDR' % locals(), 'strand',
-            '%(col_prefix)s_localIDR' % locals(), '%(col_prefix)s_globalIDR' % locals(),
-            '%(col_prefix)s_rep1_start' % locals(), '%(col_prefix)s_rep1_end' % locals(), '%(col_prefix)s_rep1_score' % locals(),
-            '%(col_prefix)s_rep2_start' % locals(), '%(col_prefix)s_rep2_end' % locals(), '%(col_prefix)s_rep2_score' % locals(),
-        ]
-        df_ = pd.read_csv(fp_idr, names=names_, sep='\t').sort_values(['chrom', 'concave_start', 'concave_end']).reset_index(drop=True)
-        df_regions_idr['%(col_prefix)s_globalIDR' % locals()] = df_['%(col_prefix)s_globalIDR' % locals()]
-
-    logging.info('globalIDR:')
-    col_ = ['%(col_prefix)s_globalIDR' % locals() for col_prefix in df_samples['condition'].unique()]
-    logging.info(df_regions_idr[col_].head().to_string(line_width=1000, index=False))
-
-    # Final peak boundaries -- fixed at flank_len bases either side of the mode
+    # Final peak boundaries -- either defined by the concave region or fixed at flank_len bases either side of the mode
     if fixed_peak_halfwidth is None:
         df_regions_idr['start'] = df_regions_idr['concave_start']
         df_regions_idr['end'] = df_regions_idr['concave_end']
-    
     else:
         df_regions_idr['start'] = df_regions_idr['mode'] - fixed_peak_halfwidth
         df_regions_idr['end'] = df_regions_idr['mode'] + fixed_peak_halfwidth + 1
 
-    # Write final output of all peaks
+    # Final output of all raw peaks subject to IDR analyses
     fp_regions_idr = prefix_out + '.tsv'
-    df_regions_idr.to_csv(fp_regions_idr, header=True, index=False, sep='\t')
-    logging.info('Wrote all %d IDR-scored peaks to %s' % (len(df_regions_idr), fp_regions_idr))
+    if check_recycle('IDR analyses', fp_regions_idr, recycle):
+        # run IDR using scores from each condition
+        for condition in df_samples['condition'].unique():
+            col_prefix = condition
+            #IDRs_ = run_idr_system(df_regions_idr['chrom'], df_regions_idr['concave_start'], df_regions_idr['concave_end'], df_regions_idr['%(condition)s_rep1_score' % locals()], df_regions_idr['%(condition)s_rep2_score' % locals()], prefix_out, condition)
+            IDRs_ = run_idr_call(df_regions_idr['%(condition)s_rep1_score' % locals()], df_regions_idr['%(condition)s_rep2_score' % locals()])
+            df_regions_idr['%(col_prefix)s_globalIDR' % locals()] = IDRs_
+
+        df_regions_idr.to_csv(fp_regions_idr, header=True, index=False, sep='\t')
+        logging.info('Wrote all %d IDR-scored peaks to %s' % (len(df_regions_idr), fp_regions_idr))
+
+    df_regions_idr = pd.read_csv(fp_regions_idr, sep='\t')
+    logging.info('%d IDR-scored peaks' % (len(df_regions),))
+
+    logging.info('globalIDR:')
+    col_ = ['%(col_prefix)s_globalIDR' % locals() for col_prefix in df_samples['condition'].unique()]
+    logging.info(df_regions_idr[col_].head().to_string(line_width=1000, index=False))
 
     # Write final .bed-files at a range of thresholds
     col_ = ['%(col_prefix)s_globalIDR' % locals() for col_prefix in df_samples['condition'].unique()]
