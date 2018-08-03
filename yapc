@@ -51,15 +51,25 @@ def coverage(l_fp_inp, fp_out):
     assert pyBigWig.numpy == 1
     assert all([fh_inp.isBigWig() for fh_inp in l_fh_inp])
 
-    fh_out = pyBigWig.open(fp_out, 'w')
-    fh_out.addHeader([(chrom, size) for (chrom, size) in l_fh_inp[0].chroms().items()])
+    chroms_sizes_ = dict() # Iterate over the *union* of all chromosomes, as empty chromosomes might be missing in (some) files (e.g. Ensembl CB4 short sequences)
+    for fh_inp in l_fh_inp:
+        for chrom, size in fh_inp.chroms().items():
+            chroms_sizes_[chrom] = max(size, chroms_sizes_.get(chrom, 0))
+    chroms_sizes = collections.OrderedDict(sorted(chroms_sizes_.items(), key=lambda chrom_size: bytearray(chrom_size[0], encoding='ascii')))
 
-    for chrom, size in itertools.islice(l_fh_inp[0].chroms().items(), None):
+    fh_out = pyBigWig.open(fp_out, 'w')
+    fh_out.addHeader([(chrom, size) for (chrom, size) in chroms_sizes.items()])
+
+    for chrom, size in itertools.islice(chroms_sizes.items(), None):
         l_val = []
         print(chrom, size)
         for fh_inp in l_fh_inp:
             #val = fill_gap(fh_inp.values(chrom, 0, size, numpy=True)) # This is doing something else.
-            val = fh_inp.values(chrom, 0, size, numpy=True)
+            try:
+                val = fh_inp.values(chrom, 0, size, numpy=True)
+            except RuntimeError:
+                print('RuntimeError suggests empty chromosome; returning flat signal')
+                val = np.zeros(size)
             #print(val.shape)
             l_val.append(val)
         fh_out.addEntries(chrom, 0, values=np.mean(l_val, axis=0), span=1, step=1)
@@ -141,6 +151,10 @@ assert nanargmax_median([1]) == 0
 def find_concave_regions_chrom(d2y, chrom='.', tol=1e-10):
     s = np.where(np.diff((d2y < tol).astype(int))==1)[0] + 1
     e = np.where(np.diff((d2y < tol).astype(int))==-1)[0] + 1
+    if len(s) == 0:
+        print('No raw concave regions on chrom %s' % (chrom,))
+        return pd.DataFrame(columns=['chrom', 'concave_start', 'concave_end', 'mode'])
+ 
     if s[0] > e[0]:
         s = np.insert(s, 0, 0)
     if s[-1] > e[-1]:
@@ -186,7 +200,10 @@ def scores(fp_inp, chroms, starts, ends, kernel):
         d_chrom_d2smooth[chrom] = val_d2
 
     for chrom, start, end in zip(chroms, starts, ends):
-        yield -np.mean(d_chrom_d2smooth[chrom][start:end])
+        try:
+            yield -np.mean(d_chrom_d2smooth[chrom][start:end])
+        except KeyError: # empty chromosome
+            yield -np.inf
 
 def run_idr_system(chroms, starts, ends, scores_rep1, scores_rep2, prefix_out, condition):
     '''
