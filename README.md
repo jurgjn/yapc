@@ -68,6 +68,13 @@ optional arguments:
                         Set final peak coordinates to the specified number of
                         base pairs on either side of the concave region mode.
                         (default: None)
+  --pseudoreplicates    Use pseudoreplicates as implemented in modENCODE
+                        (Landt et al 2012; around Fig 7): for each condition,
+                        assess peak reproducibility in replicates and
+                        pseudoreplicates; report globalIDRs for the set with a
+                        larger number of peak calls (at IDR=0.001).
+                        Pseudoreplicates are specified as the 3rd and 4th file
+                        name after every condition. (default: False)
   --recycle             Do not recompute (intermediate) output files if a file
                         with the expected name is already present. Enabling
                         this can lead to funky behaviour e.g. in the case of a

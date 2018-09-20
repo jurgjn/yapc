@@ -291,11 +291,11 @@ def check_recycle(label, fp, recycle):
         logging.info('[recompute]\t%s: %s' % (label, fp))
         return True
 
-def main(df_samples, prefix_out, kernel, min_concave_region_width, truncate_idr_input, fixed_peak_halfwidth, recycle):
+def main(df_samples, prefix_out, kernel, min_concave_region_width, truncate_idr_input, fixed_peak_halfwidth, pseudoreplicates, recycle):
     # fp_coverage
     fp_coverage = prefix_out + '_coverage.bw'
     if check_recycle('pooled coverage track', fp_coverage, recycle):
-        coverage(df_samples['fp'].tolist(), fp_coverage)
+        coverage(df_samples.query('~pseudoreplicate')['fp'].tolist(), fp_coverage)
 
     # fp_d2smooth
     fp_d2smooth = prefix_out + '_d2smooth.bw'
@@ -358,9 +358,25 @@ def main(df_samples, prefix_out, kernel, min_concave_region_width, truncate_idr_
         # run IDR using scores from each condition
         for condition in df_samples['condition'].unique():
             col_prefix = condition
-            #IDRs_ = run_idr_system(df_regions_idr['chrom'], df_regions_idr['concave_start'], df_regions_idr['concave_end'], df_regions_idr['%(condition)s_rep1_score' % locals()], df_regions_idr['%(condition)s_rep2_score' % locals()], prefix_out, condition)
-            IDRs_ = run_idr_call(df_regions_idr['%(condition)s_rep1_score' % locals()], df_regions_idr['%(condition)s_rep2_score' % locals()])
-            df_regions_idr['%(col_prefix)s_globalIDR' % locals()] = IDRs_
+            if not pseudoreplicates:
+                #IDRs_ = run_idr_system(df_regions_idr['chrom'], df_regions_idr['concave_start'], df_regions_idr['concave_end'], df_regions_idr['%(condition)s_rep1_score' % locals()], df_regions_idr['%(condition)s_rep2_score' % locals()], prefix_out, condition)
+                IDRs_ = run_idr_call(df_regions_idr['%(condition)s_rep1_score' % locals()], df_regions_idr['%(condition)s_rep2_score' % locals()])
+                df_regions_idr['%(col_prefix)s_globalIDR' % locals()] = IDRs_
+            else:
+                th_select = 0.001
+                th_globalIDR = -math.log(th_select, 10)
+                IDRs_rep = run_idr_call(df_regions_idr['%(condition)s_rep1_score' % locals()], df_regions_idr['%(condition)s_rep2_score' % locals()])
+                IDRs_prp = run_idr_call(df_regions_idr['%(condition)s_prp1_score' % locals()], df_regions_idr['%(condition)s_prp2_score' % locals()])
+
+                n_rep = sum(IDRs_rep >= th_globalIDR)
+                n_prp = sum(IDRs_prp >= th_globalIDR)
+
+                if n_rep >= n_prp:
+                    logging.info('condition %s: n_rep=%d, n_prp=%d (at IDR=%.3f) => using replicates' % (condition, n_rep, n_prp, th_select))
+                    df_regions_idr['%(col_prefix)s_globalIDR' % locals()] = IDRs_rep
+                else:
+                    logging.info('condition %s: n_rep=%d, n_prp=%d (at IDR=%.3f) => using pseudoreplicates' % (condition, n_rep, n_prp, th_select))
+                    df_regions_idr['%(col_prefix)s_globalIDR' % locals()] = IDRs_prp
 
         df_regions_idr.to_csv(fp_regions_idr, header=True, index=False, sep='\t')
         logging.info('Wrote all %d IDR-scored peaks to %s' % (len(df_regions_idr), fp_regions_idr))
@@ -387,15 +403,29 @@ def main(df_samples, prefix_out, kernel, min_concave_region_width, truncate_idr_
         )
         logging.info('Wrote %d peaks at IDR=%.3f to %s' % (len(df_regions_idr_th), th, fp_regions_idr_th))
 
-def parse_input_files(l_inp):
+def parse_input_files(l_inp, pseudoreplicates):
     l_records = []
-    l_conditions = l_inp[0::3]
-    l_fp_rep1 = l_inp[1::3]
-    l_fp_rep2 = l_inp[2::3]
-    for (condition, fp_rep1, fp_rep2) in zip(l_conditions, l_fp_rep1, l_fp_rep2):
-        l_records.append([condition, condition + '_rep1', fp_rep1])
-        l_records.append([condition, condition + '_rep2', fp_rep2])
-    df_samples = pd.DataFrame.from_records(l_records, columns=['condition', 'sample', 'fp'])
+    if pseudoreplicates:
+        l_conditions = l_inp[0::5]
+        l_fp_rep1 = l_inp[1::5]
+        l_fp_rep2 = l_inp[2::5]
+        l_fp_prp1 = l_inp[3::5]
+        l_fp_prp2 = l_inp[4::5]
+        for (condition, fp_rep1, fp_rep2, fp_prp1, fp_prp2) in zip(l_conditions, l_fp_rep1, l_fp_rep2, l_fp_prp1, l_fp_prp2):
+            l_records.append([condition, condition + '_rep1', fp_rep1, False])
+            l_records.append([condition, condition + '_rep2', fp_rep2, False])
+            l_records.append([condition, condition + '_prp1', fp_prp1, True])
+            l_records.append([condition, condition + '_prp2', fp_prp2, True])
+
+    else:
+        l_conditions = l_inp[0::3]
+        l_fp_rep1 = l_inp[1::3]
+        l_fp_rep2 = l_inp[2::3]
+        for (condition, fp_rep1, fp_rep2) in zip(l_conditions, l_fp_rep1, l_fp_rep2):
+            l_records.append([condition, condition + '_rep1', fp_rep1, False])
+            l_records.append([condition, condition + '_rep2', fp_rep2, False])
+
+    df_samples = pd.DataFrame.from_records(l_records, columns=['condition', 'sample', 'fp', 'pseudoreplicate'])
     df_samples['is_bw'] = df_samples['fp'].map(is_bw)
     assert df_samples['is_bw'].all(), 'All input files do not look like BigWigs...'
     return df_samples
@@ -417,6 +447,7 @@ if __name__ == '__main__':
         parser.add_argument('--min-concave-region-width', help='Discard concave regions smaller than the threshold specified.', type=int, default=75)
         parser.add_argument('--truncate-idr-input', help='Truncate IDR input to the number of peaks specified.', type=int, default=100000)
         parser.add_argument('--fixed-peak-halfwidth', help='Set final peak coordinates to the specified number of base pairs on either side of the concave region mode.', type=int)
+        parser.add_argument('--pseudoreplicates', help='Use pseudoreplicates as implemented in modENCODE (Landt et al 2012; around Fig 7): for each condition, assess peak reproducibility in replicates and pseudoreplicates; report globalIDRs for the set with a larger number of peak calls (at IDR=0.001). Pseudoreplicates are specified as the 3rd and 4th file name after every condition.', action='store_true')
         parser.add_argument('--recycle', help='Do not recompute (intermediate) output files if a file with the expected name is already present. Enabling this can lead to funky behaviour e.g. in the case of a previously interrupted run.', action='store_true')
         args = parser.parse_args()
 
@@ -429,12 +460,11 @@ if __name__ == '__main__':
         logging.debug('pyBigWig.numpy flag: %s' % (pyBigWig.numpy))
         logging.debug('IDR version: %s' % (idr.__version__))
 
-        df_samples = parse_input_files(args.CONDITION_REP1_REP2)
+        df_samples = parse_input_files(args.CONDITION_REP1_REP2, args.pseudoreplicates)
         s_ = df_samples.to_string(line_width=1000, index=False)
         logging.info('Input samples:\n%(s_)s\n' % locals())
 
         logging.info('Output prefix: %s' % (args.OUTPUT_PREFIX,))
-
         # Make output directory + intermediate directories if necessary -- fails sometimes
         #prefix_out = sys.argv[-1]
         #makedirsp(os.path.split(prefix_out)[0])
@@ -446,6 +476,7 @@ if __name__ == '__main__':
             min_concave_region_width=args.min_concave_region_width,
             fixed_peak_halfwidth=args.fixed_peak_halfwidth,
             truncate_idr_input=args.truncate_idr_input,
+            pseudoreplicates=args.pseudoreplicates,
             recycle=args.recycle,
         )
 
