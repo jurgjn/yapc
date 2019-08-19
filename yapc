@@ -391,7 +391,7 @@ def main(df_samples, prefix_out, kernel, min_concave_region_width, truncate_idr_
     # Write final .bed-files at a range of thresholds
     col_ = ['%(col_prefix)s_globalIDR' % locals() for col_prefix in df_samples['condition'].unique()]
     df_regions_idr['max_globalIDR'] = df_regions_idr[col_].max(axis=1)
-    for th in [0.001, 0.005, 0.01, 0.05]:
+    for th in [0.001, 0.005, 0.01, 0.05, 0.1, 0.2]:
         th_globalIDR = -math.log(th, 10)
         fp_regions_idr_th = prefix_out + '_%(th)s.bed' % locals()
         df_regions_idr_th = df_regions_idr.query('max_globalIDR >= @th_globalIDR').reset_index(drop=True)
