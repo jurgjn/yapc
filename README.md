@@ -1,6 +1,8 @@
 ## Yet another peak caller
 ![example_atac_nhr-25.png](example_atac_nhr-25.png)
-This is a peak caller for genomic high-throughput sequencing data such as ATAC-seq, DNase-seq or ChIP-seq. It was specifically written for the purpose of capturing representative peaks of characteristic width in a time series data set with two biological replicates per time point (or other data with multiple conditions). Briefly, candidate peak locations are defined using concave regions (regions with negative smoothed second derivative) from signal averaged across all samples. The candidate peaks are then tested for condition-specific statistical significance using [IDR](https://github.com/nboley/idr) ([Li et al 2011](https://doi.org/10.1214/11-AOAS466)).
+This is a peak caller for genomic high-throughput sequencing data such as ATAC-seq, DNase-seq or ChIP-seq. It was specifically written for the purpose of capturing representative peaks of characteristic width in a time series data set with two biological replicates per time point (or other data with multiple conditions); however, it can also be used for isolated replicates from a single condition. Briefly, candidate peak locations are defined using concave regions (regions with negative smoothed second derivative) from signal averaged across all samples. The candidate peaks are then tested for condition-specific statistical significance using [IDR](https://github.com/nboley/idr) ([Li et al 2011](https://doi.org/10.1214/11-AOAS466)).
+
+If you use yapc in your work, please cite [Jänes et al (2018)](https://doi.org/10.7554/eLife.37344).
 
 ## Quick start
 - Install numpy, pandas, pyBigWig and idr, e.g. anaconda: `conda install -c bioconda numpy pandas pybigwig idr`
