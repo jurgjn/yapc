@@ -1,12 +1,13 @@
 import setuptools
-import yapc
+
+from yapc import __version__
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setuptools.setup(
     name = "yapc",
-    version = yapc.__version__,
+    version = __version__,
     author = "jurgjn",
     author_email = "jurgjn@users.noreply.github.com",
     description = "Yapc is a (yet another) peak caller for genomic high-throughput sequencing data",

@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 """
-An adhoc peak caller for genomic high-throughput sequencing data such as ATAC-seq, 
-DNase-seq or ChIP-seq. Specifically written for the purpose of capturing representative 
+An adhoc peak caller for genomic high-throughput sequencing data such as ATAC-seq,
+DNase-seq or ChIP-seq. Specifically written for the purpose of capturing representative
 peaks of characteristic width in a time series data set with two biological replicates per
-time point. Briefly, candidate peak locations are defined using concave regions (regions 
-with negative smoothed second derivative) from signal averaged across all samples. The 
+time point. Briefly, candidate peak locations are defined using concave regions (regions
+with negative smoothed second derivative) from signal averaged across all samples. The
 candidate peaks are then tested for condition-specific statistical significance using IDR.
 """
 
@@ -25,6 +25,8 @@ import pyBigWig
 
 import idr
 import idr.idr
+
+import yapc
 
 def prepare_second_derivative_kernel(width, times):
     """
@@ -80,7 +82,7 @@ def coverage(l_fp_inp, fp_out):
     fh_out.close()
 
 def d2smooth(fp_inp, fp_out, kernel):
-    fh_inp = pyBigWig.open(fp_inp) 
+    fh_inp = pyBigWig.open(fp_inp)
     fh_out = pyBigWig.open(fp_out, 'w')
     fh_out.addHeader([(chrom, size) for (chrom, size) in fh_inp.chroms().items()])
 
@@ -94,8 +96,8 @@ def d2smooth(fp_inp, fp_out, kernel):
     fh_out.close()
 
 def write_gffbed(fp,
-                 chrom, start, end, name='', attr=None, score=0, strand='.', 
-                 thickStart=None, thickEnd=None, itemRgb='#0072b2', 
+                 chrom, start, end, name='', attr=None, score=0, strand='.',
+                 thickStart=None, thickEnd=None, itemRgb='#0072b2',
                  trackline='#track gffTags=on', v=False):
     df = pd.DataFrame()
     def force_iter(l_):
@@ -118,7 +120,7 @@ def write_gffbed(fp,
     df['strand'] = force_iter(strand)
 
     if not(thickStart is None):
-        df['thickStart'] = force_iter(thickStart)       
+        df['thickStart'] = force_iter(thickStart)
     else:
         df['thickStart'] = df['start'].copy().tolist()
 
@@ -134,8 +136,8 @@ def write_gffbed(fp,
     if v: return df
 
 # https://doi.org/10.1101/gr.153668.112
-# For analyses where a single TSS position was required, we considered the distribution of cap 5' ends 
-# within the TIC, and selected the position with the most tags (the mode). In the case of a tie (two or more 
+# For analyses where a single TSS position was required, we considered the distribution of cap 5' ends
+# within the TIC, and selected the position with the most tags (the mode). In the case of a tie (two or more
 # positions with the same number of tags), we selected the mode closest to the median of the TIC.
 def nanargmax_median(a):
     a_max = np.nanmax(a)
@@ -154,7 +156,7 @@ def find_concave_regions_chrom(d2y, chrom='.', tol=1e-10):
     if len(s) == 0:
         print('No raw concave regions on chrom %s' % (chrom,))
         return pd.DataFrame(columns=['chrom', 'concave_start', 'concave_end', 'mode'])
- 
+
     if s[0] > e[0]:
         s = np.insert(s, 0, 0)
     if s[-1] > e[-1]:
@@ -174,7 +176,7 @@ def find_concave_regions_chrom(d2y, chrom='.', tol=1e-10):
     return df_regions
 
 def find_concave_regions(fp_inp, fp_out_tsv, fp_out_bed):
-    fh_inp = pyBigWig.open(fp_inp) 
+    fh_inp = pyBigWig.open(fp_inp)
     df_regions = pd.concat([
         find_concave_regions_chrom(d2y=fh_inp.values(chrom, 0, size, numpy=True), chrom=chrom)
         for chrom, size in itertools.islice(fh_inp.chroms().items(), None)], axis=0, ignore_index=True)
@@ -240,7 +242,7 @@ def run_idr_system(chroms, starts, ends, scores_rep1, scores_rep2, prefix_out, c
     print('Running idr on condition %(condition)s:' % locals())
     print(idr_cmd)
     os.system(idr_cmd)
-        
+
     col_prefix = condition
     names_ = [
         'chrom', 'concave_start', 'concave_end', 'name',
@@ -339,7 +341,7 @@ def main(df_samples, prefix_out, kernel, min_concave_region_width, truncate_idr_
     df_regions['min_rank'] = df_regions[[sample + '_score' for sample in df_samples['sample']]].rank(axis=0, ascending=False).min(axis=1)
     df_regions_idr = df_regions.sort_values('min_rank').head(truncate_idr_input).sort_values(['chrom', 'concave_start', 'concave_end']).reset_index(drop=True)
     logging.info('%d peaks after filtering based on best rank across all conditions (truncate_idr_input=%d)' % (len(df_regions_idr), truncate_idr_input))
-    
+
     col_ = [sample + '_score' for sample in df_samples['sample']]
     str_ = df_regions[col_].head().to_string(line_width=1000, index=False)
     logging.info('curvature index-scores:\n%(str_)s' % locals())
@@ -439,6 +441,8 @@ def makedirsp(fp):
 
 if __name__ == '__main__':
     try:
+        print(f'yapc (yet another peak caller) {yapc.__version__}\n')
+
         parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
         parser.add_argument('OUTPUT_PREFIX', help='Prefix to use for all output files')
         parser.add_argument('CONDITION_REP1_REP2', nargs='*', help='Name of the condition, BigWig files of first and second replicates; all separated by spaces.')
@@ -452,7 +456,7 @@ if __name__ == '__main__':
         args = parser.parse_args()
 
         logging.basicConfig(
-            level=logging.DEBUG, 
+            level=logging.DEBUG,
             format='%(asctime)s | %(message)s',
             datefmt='%y-%m-%d %H:%M:%S')
         logging.debug('numpy version: %s' % (np.__version__,))
