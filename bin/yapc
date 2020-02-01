@@ -392,7 +392,7 @@ if __name__ == '__main__':
         logging.debug('numpy version: %s' % (np.__version__,))
         logging.debug('pandas version: %s' % (pd.__version__,))
         logging.debug('pyBigWig.numpy flag: %s' % (pyBigWig.numpy))
-        logging.debug('IDR version: %s' % (idr.__version__))
+        logging.debug('IDR version: %s' % (yapc.idr.idr.__version__))
 
         df_samples = parse_input_files(args.CONDITION_REP1_REP2, args.pseudoreplicates)
         s_ = df_samples.to_string(line_width=1000, index=False)
