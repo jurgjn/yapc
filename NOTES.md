@@ -1,4 +1,8 @@
 # Notes
+- Installing the latest development version:
+    - install prerequisites: `conda install -c bioconda numpy pandas pybigwig idr`
+    - clone [`develop` branch](https://nvie.com/posts/a-successful-git-branching-model/): `git clone --branch develop https://github.com/jurgjn/yapc.git`
+    - install in editable mode using pip: `pip install -e yapc`
 - Broad overview of the IDR workflow -- replicates, pseudoreplicates, self-pseudoreplicates, etc -- in [(Landt et al. 2012)](https://dx.doi.org/10.1101%2Fgr.136184.111) around [Fig 7](http://genome.cshlp.org/content/22/9/1813/F7.expansion.html).  
 - There are two IDR implementations: [an initial R version](https://sites.google.com/site/anshulkundaje/projects/idr), and a [v2 python rewrite](https://github.com/nboley/idr/) ([available in bioconda](https://anaconda.org/bioconda/idr)). The latter [has several improvements](https://groups.google.com/forum/#!topic/idr-discuss/A7PaMnzoFwg) and is being used by the current version of this pipeline.
 - `idr` script in IDR v2 is the equivalent of `batch-consistency-analysis.r` in the initial R version; [it should be used in a similar fashion](https://groups.google.com/forum/#!topic/idr-discuss/_a_GKfw7kwM) (replicates, pseudoreplicates, self-pseudoreplicates)
