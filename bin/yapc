@@ -25,6 +25,7 @@ import pyBigWig
 
 import yapc
 import yapc.idr
+import yapc.utils
 
 def prepare_second_derivative_kernel(width, times):
     """
@@ -39,11 +40,6 @@ def prepare_second_derivative_kernel(width, times):
         kernel = np.convolve(kernel, rolling_mean_kernel)
     ADHOC_LARGE_NUMBER = 1e6 # scale to have better visualisation of d2smooth in IGV
     return ADHOC_LARGE_NUMBER*kernel[::-1]
-
-def is_bw(fp):
-    with pyBigWig.open(fp) as fh:
-        f = fh.isBigWig()
-    return f
 
 def coverage(l_fp_inp, fp_out):
     print('calculating mean of all input signal:')
@@ -358,16 +354,22 @@ def parse_input_files(l_inp, pseudoreplicates):
             l_records.append([condition, condition + '_rep2', fp_rep2, False])
 
     df_samples = pd.DataFrame.from_records(l_records, columns=['condition', 'sample', 'fp', 'pseudoreplicate'])
-    df_samples['is_bw'] = df_samples['fp'].map(is_bw)
+    df_samples['is_bw'] = df_samples['fp'].map(yapc.utils.is_bw)
     assert df_samples['is_bw'].all(), 'All input files do not look like BigWigs...'
     return df_samples
 
-def makedirsp(fp):
-    try:
-        os.makedirs(fp)
-    except:
-        if not(os.path.isdir(fp)):
-            raise
+def parse_input_table(path, condition_col, replicate_col, track_col):
+    df_samples = pd.read_table(path)[[condition_col, replicate_col, track_col]]
+    df_samples.columns = ['condition', 'sample', 'fp']
+    df_samples['is_bw'] = df_samples['fp'].map(yapc.utils.is_bw)
+
+    if not all (df_samples['is_bw']):
+        df_samples['fp'] = df_samples['fp'].map(lambda fp: os.path.normpath(os.path.join(os.path.dirname(path), fp)))
+        df_samples['is_bw'] = df_samples['fp'].map(yapc.utils.is_bw)
+    print(df_samples)
+
+    df_samples['pseudoreplicate'] = False
+    return df_samples
 
 if __name__ == '__main__':
     try:
@@ -375,7 +377,10 @@ if __name__ == '__main__':
 
         parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
         parser.add_argument('OUTPUT_PREFIX', help='Prefix to use for all output files')
-        parser.add_argument('CONDITION_REP1_REP2', nargs='*', help='Name of the condition, BigWig files of first and second replicates; all separated by spaces.')
+        parser.add_argument('CONDITION_REP1_REP2', nargs='*', help='Name of the condition, BigWig files of first and second replicates; all separated by spaces. Alternatively, location of the sample sheet file')
+        parser.add_argument('--condition-col', help='Sample sheet column containing condition identifiers', default='condition')
+        parser.add_argument('--replicate-col', help='Sample sheet column containing replicate identifiers', default='sample')
+        parser.add_argument('--track-col', help='Sample sheet column with track (BigWig) file locations (relative to either working directory or directory containing the sample sheet)', default='fp')
         parser.add_argument('--smoothing-window-width', help='Width of the smoothing window used for the second derivative track. If the peak calls aren\'t capturing the peak shape well, try setting this to different values ranging from 75 to 200.', type=int, default=150)
         parser.add_argument('--smoothing-times', help='Number of times smoothing is applied to the second derivative.', type=int, default=3)
         parser.add_argument('--min-concave-region-width', help='Discard concave regions smaller than the threshold specified.', type=int, default=75)
@@ -383,6 +388,7 @@ if __name__ == '__main__':
         parser.add_argument('--fixed-peak-halfwidth', help='Set final peak coordinates to the specified number of base pairs on either side of the concave region mode.', type=int)
         parser.add_argument('--pseudoreplicates', help='Use pseudoreplicates as implemented in modENCODE (Landt et al 2012; around Fig 7): for each condition, assess peak reproducibility in replicates and pseudoreplicates; report globalIDRs for the set with a larger number of peak calls (at IDR=0.001). Pseudoreplicates are specified as the 3rd and 4th file name after every condition.', action='store_true')
         parser.add_argument('--recycle', help='Do not recompute (intermediate) output files if a file with the expected name is already present. Enabling this can lead to funky behaviour e.g. in the case of a previously interrupted run.', action='store_true')
+        parser.add_argument('--dry-run', help='', action='store_true')
         args = parser.parse_args()
 
         logging.basicConfig(
@@ -394,7 +400,12 @@ if __name__ == '__main__':
         logging.debug('pyBigWig.numpy flag: %s' % (pyBigWig.numpy))
         logging.debug('IDR version: %s' % (yapc.idr.idr.__version__))
 
-        df_samples = parse_input_files(args.CONDITION_REP1_REP2, args.pseudoreplicates)
+        if len(args.CONDITION_REP1_REP2) == 1: # Parse input args as specifying a separate sample sheet
+            df_samples = parse_input_table(args.CONDITION_REP1_REP2[0], args.condition_col, args.replicate_col, args.track_col)
+
+        else: # Parse input args as a list of tokens specifying the samples
+            df_samples = parse_input_files(args.CONDITION_REP1_REP2, args.pseudoreplicates)
+
         s_ = df_samples.to_string(line_width=1000, index=False)
         logging.info('Input samples:\n%(s_)s\n' % locals())
 
@@ -402,6 +413,8 @@ if __name__ == '__main__':
         # Make output directory + intermediate directories if necessary -- fails sometimes
         #prefix_out = sys.argv[-1]
         #makedirsp(os.path.split(prefix_out)[0])
+
+        if args.dry_run: sys.exit(0)
 
         main(
             df_samples=df_samples,
