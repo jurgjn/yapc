@@ -1,0 +1,19 @@
+rule all:
+    # snakemake --cores all
+    input:
+        expand("Gorkin2020/signal_pval/{Accession}.bw", Accession=[\
+            "ENCFF445RZJ", "ENCFF966IIO",
+            "ENCFF256EPN", "ENCFF867AIO",
+            "ENCFF947RNR", "ENCFF185WUX",
+            "ENCFF756GSW", "ENCFF353CJF",
+            "ENCFF761ICE", "ENCFF597LUE",
+        ])
+
+rule Gorkin2020_pval:
+    output:
+        bw = "Gorkin2020/signal_pval/{Accession}.bw"
+    params:
+        url = lambda wc: f"https://www.encodeproject.org/files/{wc.Accession}/@@download/{wc.Accession}.bigWig",
+    shell: """
+        wget --content-disposition -O {output.bw} {params.url}
+    """
