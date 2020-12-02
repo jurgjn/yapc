@@ -1,13 +1,14 @@
+import pandas as pd
+
+def Gorkin2020_pval_accession_all():
+    cols = ['signal_p_val_rep1_accession', 'signal_p_val_rep2_accession']
+    df = pd.read_csv('Gorkin2020/Supplementary_Table_13.tsv', sep='\t')
+    return df[cols].values.flatten()[:20]
+
 rule all:
-    # snakemake --cores all
+    # snakemake --cores all --dry-run
     input:
-        expand("Gorkin2020/signal_pval/{Accession}.bw", Accession=[\
-            "ENCFF445RZJ", "ENCFF966IIO",
-            "ENCFF256EPN", "ENCFF867AIO",
-            "ENCFF947RNR", "ENCFF185WUX",
-            "ENCFF756GSW", "ENCFF353CJF",
-            "ENCFF761ICE", "ENCFF597LUE",
-        ])
+        expand("Gorkin2020/signal_pval/{Accession}.bw", Accession=Gorkin2020_pval_accession_all())
 
 rule Gorkin2020_pval:
     output:
